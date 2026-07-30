@@ -1,0 +1,5 @@
+streamlit
+groq
+youtube-transcript-api
+yt-dlp
+imageio-ffmpeg
