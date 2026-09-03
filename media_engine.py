@@ -4,7 +4,7 @@ from groq import Groq
 from youtube_transcript_api import YouTubeTranscriptApi
 import yt_dlp
 
-# imageio_ffmpeg가 설치되어 있으면 ffmpeg 경로를 자동 확보
+# imageio_ffmpeg가 설치되어 있으면 ffmpeg 경로 자동 확보
 try:
     import imageio_ffmpeg
     FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
@@ -23,7 +23,7 @@ def summarize_video(url, api_key):
     
     full_text = ""
     
-    # 1. 유튜브 자막 추출 시도
+    # 1. 유튜브 자막 추출 우선 시도
     if "youtube.com" in url or "youtu.be" in url:
         video_id = extract_youtube_id(url)
         if video_id:
@@ -31,7 +31,7 @@ def summarize_video(url, api_key):
                 transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
                 full_text = " ".join([item['text'] for item in transcript_list])
             except Exception:
-                pass  # 자막 추출 실패 시 음성 다운로드 방식으로 전환
+                pass  # 자막 추출 실패 시 오디오 다운로드 방식으로 전환
 
     # 2. 인스타그램 릴스 / 자막 없는 영상 (Groq Whisper 음성인식 처리)
     if not full_text:
@@ -40,6 +40,12 @@ def summarize_video(url, api_key):
             'outtmpl': 'temp_audio.%(ext)s',
             'overwrites': True,
             'quiet': True,
+            # 클라우드 환경 403 Forbidden 에러 우회
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios']
+                }
+            },
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
@@ -70,12 +76,12 @@ def summarize_video(url, api_key):
             raise FileNotFoundError("오디오 파일을 추출하지 못했습니다.")
 
         try:
-            # 💡 [안전 방어막] Groq 서버 전송 전 용량 체크
+            # Groq 서버 전송 전 용량 체크 (20MB 한도 방어)
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             if file_size_mb > 20:
                 raise ValueError(
-                    f"음성 파일 용량({file_size_mb:.1f}MB)이 API 무료 한도(20MB)를 초과했습니다. "
-                    f"터미널에서 'pip install imageio-ffmpeg'를 실행하셨는지 확인해 주시거나 더 짧은 영상으로 시도해 주세요."
+                    f"음성 파일 용량({file_size_mb:.1f}MB)이 API 한도(20MB)를 초과했습니다. "
+                    f"더 짧은 영상으로 시도해 주세요."
                 )
 
             # Groq Whisper 모델로 음성 -> 텍스트 변환
