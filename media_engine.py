@@ -35,23 +35,19 @@ def summarize_video(url, api_key):
 
     # 2. 인스타그램 릴스 / 자막 없는 영상 (Groq Whisper 음성인식 처리)
     if not full_text:
-      # media_engine.py 수정 부분
+        ydl_opts = {
+            'format': 'bestaudio/worst/worstaudio',
+            'outtmpl': 'temp_audio.%(ext)s',
+            'overwrites': True,
+            'quiet': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            },
+            'socket_timeout': 30,
+        }
 
-ydl_opts = {
-    # 최저 음질 매칭 실패를 방지하기 위해 일반 오디오 우선 다운로드로 변경
-    'format': 'bestaudio/worst/worstaudio',
-    'outtmpl': 'temp_audio.%(ext)s',
-    'overwrites': True,
-    'quiet': True,
-    # 봇 차단 우회를 위한 User-Agent 및 브라우저 모방 헤더
-    'http_headers': {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-    },
-    'socket_timeout': 30,
-}
-
-        # FFmpeg가 감지되면 32kbps MP3로 고강도 오디오 압축 적용 (용량 1/10 감소)
+        # FFmpeg가 감지되면 32kbps MP3로 고강도 오디오 압축 적용
         if FFMPEG_PATH:
             ydl_opts['ffmpeg_location'] = FFMPEG_PATH
             ydl_opts['postprocessors'] = [{
@@ -74,7 +70,7 @@ ydl_opts = {
             raise FileNotFoundError("오디오 파일을 추출하지 못했습니다.")
 
         try:
-            # 💡 [안전 방어막] Groq 서버 전송 전 용량 체크 (20MB 초과 시 413 에러 사전 방지)
+            # 💡 [안전 방어막] Groq 서버 전송 전 용량 체크
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             if file_size_mb > 20:
                 raise ValueError(
@@ -82,7 +78,7 @@ ydl_opts = {
                     f"터미널에서 'pip install imageio-ffmpeg'를 실행하셨는지 확인해 주시거나 더 짧은 영상으로 시도해 주세요."
                 )
 
-            # Groq 무료 Whisper 모델로 음성 -> 텍스트 변환
+            # Groq Whisper 모델로 음성 -> 텍스트 변환
             with open(audio_path, "rb") as file:
                 transcription = client.audio.transcriptions.create(
                     file=(os.path.basename(audio_path), file.read()),
@@ -95,7 +91,7 @@ ydl_opts = {
             if audio_path and os.path.exists(audio_path):
                 os.remove(audio_path)
 
-# 3. Groq Llama 3.3 모델로 한국어 요약 생성 (풍부한 요약 버전)
+    # 3. Groq Llama 3.3 모델로 한국어 요약 생성
     prompt = f"""
 아래는 영상의 전체 음성/자막 텍스트입니다. 
 영상을 직접 보지 않은 사람도 내용을 완벽하게 이해할 수 있도록, 생략 없이 **상세하고 입체적으로** 요약해 주세요.
@@ -124,6 +120,6 @@ ydl_opts = {
                 "content": prompt
             }
         ],
-        temperature=0.3 # 가공 및 요약의 안정성을 위한 설정
+        temperature=0.3
     )
     return response.choices[0].message.content
