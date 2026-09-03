@@ -35,12 +35,21 @@ def summarize_video(url, api_key):
 
     # 2. 인스타그램 릴스 / 자막 없는 영상 (Groq Whisper 음성인식 처리)
     if not full_text:
-        ydl_opts = {
-            'format': 'worstaudio/worst',
-            'outtmpl': 'temp_audio.%(ext)s',
-            'overwrites': True,
-            'quiet': True,
-        }
+      # media_engine.py 수정 부분
+
+ydl_opts = {
+    # 최저 음질 매칭 실패를 방지하기 위해 일반 오디오 우선 다운로드로 변경
+    'format': 'bestaudio/worst/worstaudio',
+    'outtmpl': 'temp_audio.%(ext)s',
+    'overwrites': True,
+    'quiet': True,
+    # 봇 차단 우회를 위한 User-Agent 및 브라우저 모방 헤더
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+    },
+    'socket_timeout': 30,
+}
 
         # FFmpeg가 감지되면 32kbps MP3로 고강도 오디오 압축 적용 (용량 1/10 감소)
         if FFMPEG_PATH:
