@@ -2,6 +2,7 @@
 import logging
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -105,6 +106,23 @@ def get_ffmpeg():
     return executable
 
 
+def get_audio_duration(path):
+    """Read container duration with FFmpeg, without decoding the audio."""
+    try:
+        result = subprocess.run(
+            [get_ffmpeg(), '-hide_banner', '-i', str(path)],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise VideoError('오디오 길이 확인에 실패했습니다. 다시 시도해주세요.') from exc
+    # FFmpeg exits with 1 when no output is specified; input metadata is still valid.
+    match = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)', result.stderr)
+    if not match:
+        raise VideoError('다운로드한 오디오의 길이를 확인하지 못했습니다.')
+    hours, minutes, seconds = map(float, match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
 def transcribe_audio(url, client, *, cookies=None, language=None):
     # All files, including partial downloads and cookies, belong to this request.
     with tempfile.TemporaryDirectory(prefix='video-summary-') as directory:
@@ -142,8 +160,8 @@ def transcribe_audio(url, client, *, cookies=None, language=None):
                 if info.get('is_live'):
                     raise VideoError('진행 중인 라이브 방송은 지원하지 않습니다.')
                 duration = info.get('duration')
-                if duration is None or duration > MAX_DURATION:
-                    raise VideoError('길이를 확인할 수 없거나 60분을 초과하는 영상은 오디오 처리할 수 없습니다.')
+                if duration is not None and duration > MAX_DURATION:
+                    raise VideoError('60분을 초과하는 영상은 오디오 처리할 수 없습니다.')
                 info = downloader.process_ie_result(info, download=True)
                 check_progress({})
                 audio_path = Path(info.get('filepath') or str(Path(downloader.prepare_filename(info)).with_suffix('.mp3')))
@@ -156,6 +174,8 @@ def transcribe_audio(url, client, *, cookies=None, language=None):
             raise VideoError('변환된 오디오 파일을 찾지 못했습니다.')
         if audio_path.stat().st_size > MAX_AUDIO_BYTES:
             raise VideoError('변환된 오디오가 20MB를 초과했습니다. 더 짧은 영상을 선택해주세요.')
+        if get_audio_duration(audio_path) > MAX_DURATION:
+            raise VideoError('변환된 오디오가 60분을 초과했습니다. 더 짧은 영상을 선택해주세요.')
         with audio_path.open('rb') as audio:
             options = {'model': 'whisper-large-v3-turbo', 'response_format': 'text'}
             if language:

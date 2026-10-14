@@ -64,7 +64,7 @@ class MediaTests(unittest.TestCase):
             self.assertNotIn('language', client.audio.transcriptions.create.call_args.kwargs)
             return result
 
-        with patch.object(engine.yt_dlp, 'YoutubeDL', Downloader), patch.object(engine, 'get_ffmpeg', return_value='/usr/bin/ffmpeg'):
+        with patch.object(engine.yt_dlp, 'YoutubeDL', Downloader), patch.object(engine, 'get_ffmpeg', return_value='/usr/bin/ffmpeg'), patch.object(engine, 'get_audio_duration', return_value=10):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 self.assertEqual(list(pool.map(run, range(2))), ['transcript', 'transcript'])
         self.assertEqual(len(set(directories)), 2)
@@ -95,6 +95,37 @@ class MediaTests(unittest.TestCase):
             with self.assertRaises(engine.VideoError):
                 engine.transcribe_audio('https://youtu.be/dQw4w9WgXcQ', MagicMock())
         downloader.process_ie_result.assert_not_called()
+
+    def test_missing_duration_downloads_then_checks_audio(self):
+        roots = []
+        downloader = MagicMock()
+        downloader.__enter__.return_value = downloader
+        downloader.extract_info.return_value = {'duration': None}
+        def download(info, download):
+            path = roots[-1] / 'audio.mp3'
+            path.write_bytes(b'audio')
+            return {'filepath': str(path)}
+        downloader.process_ie_result.side_effect = download
+        def factory(options):
+            roots.append(Path(options['outtmpl']).parent)
+            return downloader
+        client = MagicMock()
+        client.audio.transcriptions.create.return_value = 'recognized'
+        with patch.object(engine.yt_dlp, 'YoutubeDL', side_effect=factory), patch.object(engine, 'get_ffmpeg', return_value='/usr/bin/ffmpeg'), patch.object(engine, 'get_audio_duration', side_effect=[10, 3601]):
+            self.assertEqual(engine.transcribe_audio('https://youtu.be/dQw4w9WgXcQ', client), 'recognized')
+            client.audio.transcriptions.create.reset_mock()
+            with self.assertRaisesRegex(engine.VideoError, '60분'):
+                engine.transcribe_audio('https://youtu.be/dQw4w9WgXcQ', client)
+            client.audio.transcriptions.create.assert_not_called()
+        self.assertTrue(all(not root.exists() for root in roots))
+
+    def test_ffmpeg_duration_metadata(self):
+        with patch.object(engine, 'get_ffmpeg', return_value='ffmpeg'), patch.object(engine.subprocess, 'run') as run:
+            run.return_value = SimpleNamespace(returncode=1, stderr='Duration: 01:02:03.45, start: 0')
+            self.assertAlmostEqual(engine.get_audio_duration(Path('audio.mp3')), 3723.45)
+            run.return_value.stderr = 'Duration: N/A'
+            with self.assertRaises(engine.VideoError):
+                engine.get_audio_duration(Path('audio.mp3'))
 
     def test_long_text_summary_and_empty_response(self):
         client = MagicMock()
