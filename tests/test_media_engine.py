@@ -203,7 +203,7 @@ class MediaTests(unittest.TestCase):
         with engine.genai.Client(api_key='test-key-not-real', http_options=engine.types.HttpOptions(httpx_client=http_client)) as client:
             self.assertEqual(engine.summarize_text('원문 내용', client), 'SDK 요약')
         body = json.loads(requests_seen[0].content)
-        self.assertIn('gemini-flash-latest:generateContent', str(requests_seen[0].url))
+        self.assertIn('gemini-2.5-flash:generateContent', str(requests_seen[0].url))
         self.assertEqual(body['generationConfig']['maxOutputTokens'], 4096)
         self.assertIn('원문 내용', body['contents'][0]['parts'][0]['text'])
 
@@ -223,12 +223,59 @@ class MediaTests(unittest.TestCase):
             clips.append(command)
             Path(command[-1]).write_bytes(b'clip')
         service = MagicMock()
-        service.transcribe.side_effect = ['first', 'second', 'third']
+        service.transcribe.side_effect = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth']
         with patch.object(engine.yt_dlp, 'YoutubeDL', side_effect=factory), patch.object(engine, 'get_ffmpeg', return_value='/usr/bin/ffmpeg'), patch.object(engine, 'get_audio_duration', return_value=620), patch.object(engine.subprocess, 'run', side_effect=split):
             result = engine.transcribe_audio('https://youtu.be/dQw4w9WgXcQ', MagicMock(), service=service)
-        self.assertEqual(result, 'first\nsecond\nthird')
-        self.assertEqual([command[command.index('-ss') + 1] for command in clips], ['0', '300', '600'])
-        self.assertEqual(service.transcribe.call_count, 3)
+        self.assertEqual(result, 'first\nsecond\nthird\nfourth\nfifth\nsixth')
+        self.assertEqual([command[command.index('-ss') + 1] for command in clips], ['0', '120', '240', '360', '480', '600'])
+        self.assertEqual(service.transcribe.call_count, 6)
+        self.assertFalse(roots[0].exists())
+
+    def test_504_retries_then_succeeds(self):
+        client = MagicMock()
+        client.models.generate_content.side_effect = [engine.errors.APIError(504, {'error': {'code': 504}}), SimpleNamespace(text='복구된 응답', candidates=[])]
+        notices = []
+        with patch.object(engine.time, 'sleep') as sleep:
+            service = engine.GeminiService(client, progress=notices.append)
+            self.assertEqual(service.generate('내용', '요약'), '복구된 응답')
+        self.assertEqual(client.models.generate_content.call_count, 2)
+        sleep.assert_called_once_with(1)
+        self.assertTrue(any('다시 시도' in text for text in notices))
+
+    def test_transient_retries_stop_and_auth_is_not_retried(self):
+        client = MagicMock()
+        client.models.generate_content.side_effect = engine.errors.APIError(504, {'error': {'code': 504}})
+        with patch.object(engine.time, 'sleep'), self.assertRaises(engine.errors.APIError):
+            engine.GeminiService(client).generate('내용', '요약')
+        self.assertEqual(client.models.generate_content.call_count, 3)
+        client.models.generate_content.reset_mock()
+        client.models.generate_content.side_effect = engine.errors.APIError(403, {'error': {'code': 403}})
+        with patch.object(engine.time, 'sleep') as sleep, self.assertRaises(engine.errors.APIError):
+            engine.GeminiService(client).generate('내용', '요약')
+        self.assertEqual(client.models.generate_content.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_504_audio_is_split_in_order_and_temp_files_are_removed(self):
+        roots = []
+        downloader = MagicMock()
+        downloader.__enter__.return_value = downloader
+        downloader.extract_info.return_value = {'duration': 80}
+        def factory(options):
+            roots.append(Path(options['outtmpl']).parent)
+            audio = roots[-1] / 'audio.mp3'
+            audio.write_bytes(b'audio')
+            downloader.process_ie_result.return_value = {'filepath': str(audio)}
+            return downloader
+        clips = []
+        def split(command, **kwargs):
+            clips.append(command)
+            Path(command[-1]).write_bytes(b'clip')
+        service = MagicMock()
+        service.transcribe.side_effect = [engine.errors.APIError(504, {'error': {'code':504}}), '앞부분', '뒷부분']
+        with patch.object(engine.yt_dlp, 'YoutubeDL', side_effect=factory), patch.object(engine, 'get_ffmpeg', return_value='/usr/bin/ffmpeg'), patch.object(engine, 'get_audio_duration', return_value=80), patch.object(engine.subprocess, 'run', side_effect=split):
+            result = engine.transcribe_audio('https://youtu.be/dQw4w9WgXcQ', MagicMock(), service=service)
+        self.assertEqual(result, '앞부분\n뒷부분')
+        self.assertEqual([command[command.index('-ss') + 1] for command in clips], ['0', '40.0'])
         self.assertFalse(roots[0].exists())
 
     def test_long_text_summary_and_empty_response(self):

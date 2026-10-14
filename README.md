@@ -17,7 +17,7 @@ Gemini 키는 직접 입력한 임시 키, 브라우저에 저장한 키, `GEMIN
 
 선택 설정:
 
-- `GEMINI_MODEL`: 요약 모델. 기본값 `gemini-flash-latest`.
+- `GEMINI_MODEL`: 요약 모델. 기본값 `gemini-2.5-flash`.
 - `YOUTUBE_COOKIES`: 인증이 필요한 영상에 사용하는 Netscape 형식 쿠키 텍스트. 다운로드 작업의 임시 디렉터리에만 저장하고 작업 종료 시 삭제합니다.
 
 ## 동작과 제한
@@ -64,6 +64,6 @@ Gemini 요약 입력 한도 오류(413 등)는 입력을 더 작은 구간으로
 
 ## Gemini로 전환
 
-[Google AI Studio](https://aistudio.google.com/apikey)에서 발급한 Gemini API 키를 입력하세요. 기존 Groq 키는 사용할 수 없으며, 브라우저 저장소도 Gemini용으로 분리되어 자동으로 재사용하지 않습니다. 서버에서 설정하려면 Streamlit Cloud Secrets에 `GEMINI_API_KEY`를 등록합니다. `GEMINI_MODEL`은 선택 설정이며 기본값은 `gemini-flash-latest`입니다.
+[Google AI Studio](https://aistudio.google.com/apikey)에서 발급한 Gemini API 키를 입력하세요. 기존 Groq 키는 사용할 수 없으며, 브라우저 저장소도 Gemini용으로 분리되어 자동으로 재사용하지 않습니다. 서버에서 설정하려면 Streamlit Cloud Secrets에 `GEMINI_API_KEY`를 등록합니다. `GEMINI_MODEL`은 선택 설정이며 기본값은 `gemini-2.5-flash`입니다.
 
-자막이 없으면 MP3를 Gemini Files API로 업로드해 원래 언어로 전사합니다. 5분을 초과하는 오디오는 5분 단위로 분할합니다. 업로드 파일은 성공·실패 모두 삭제를 시도하고, 삭제에 실패하면 Files API 자동 만료까지 남을 수 있음을 안내합니다. 전사와 요약 과정에서 오디오와 텍스트가 Google로 전송됩니다. 긴 영상은 API 호출 횟수·비용이 증가하며 무료 할당량에서 요청이 제한될 수 있습니다.
+자막이 없으면 MP3를 Gemini Files API로 업로드해 원래 언어로 전사합니다. 2분을 초과하는 오디오는 2분 단위로 분할합니다. 504 등 일시 오류는 제한된 횟수만 재시도하며, 전사가 계속 지연되면 해당 구간을 최대 두 번 더 분할합니다. Gemini 2.5 Flash 계열에서는 추론을 비활성화해 전사 지연을 줄입니다. 업로드 파일은 성공·실패 모두 삭제를 시도하고, 삭제에 실패하면 Files API 자동 만료까지 남을 수 있음을 안내합니다. 전사와 요약 과정에서 오디오와 텍스트가 Google로 전송됩니다. 긴 영상은 API 호출 횟수·비용이 증가하며 무료 할당량에서 요청이 제한될 수 있습니다.
