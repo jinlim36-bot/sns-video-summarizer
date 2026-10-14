@@ -13,7 +13,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Groq 키는 `GROQ_API_KEY` 환경변수, Streamlit secrets, 브라우저에 저장한 키 순으로 조회합니다. 환경변수 또는 secrets에 키가 설정되어 있으면 브라우저 키 입력 영역은 표시하지 않습니다. secrets 파일이 없어도 실행할 수 있습니다. 키와 쿠키는 Git에 커밋하지 마세요.
+Groq 키는 직접 입력한 임시 키, 브라우저에 저장한 키, `GROQ_API_KEY` 환경변수, Streamlit secrets 순으로 조회합니다. **Groq API 키 설정** 영역은 항상 표시하며, 현재 사용하는 키의 출처를 안내합니다. 저장 화면이 로드되지 않으면 **저장 화면이 보이지 않으면 직접 입력**에서 이번 접속에 사용할 키를 입력할 수 있습니다. secrets 파일이 없어도 실행할 수 있습니다. 키와 쿠키는 Git에 커밋하지 마세요.
 
 선택 설정:
 

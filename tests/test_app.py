@@ -15,7 +15,7 @@ class AppTests(unittest.TestCase):
         with patch.dict(os.environ, {'GROQ_API_KEY': ''}), patch('browser_keys.saved_browser_key', return_value=None) as browser_key:
             at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
             self.assertFalse(at.exception)
-            self.assertEqual(len(at.text_input), 1)
+            self.assertEqual(len(at.text_input), 2)
             at.button[0].click().run()
             self.assertIn('API Key', at.warning[0].value)
             browser_key.return_value = 'test-only'
@@ -26,19 +26,19 @@ class AppTests(unittest.TestCase):
         with patch.dict(os.environ, {'GROQ_API_KEY': 'test-only'}), patch('media_engine.summarize_video', return_value='검증 요약'):
             at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
             self.assertFalse(at.exception)
-            self.assertEqual(len(at.text_input), 1)
-            at.text_input[0].input('https://youtu.be/dQw4w9WgXcQ')
+            self.assertEqual(len(at.text_input), 2)
+            at.text_input[1].input('https://youtu.be/dQw4w9WgXcQ')
             at.button[0].click().run()
             self.assertFalse(at.exception)
             self.assertEqual(at.session_state['summary'], '검증 요약')
-            at.text_input[0].input('https://youtu.be/abcdefghijk').run()
+            at.text_input[1].input('https://youtu.be/abcdefghijk').run()
             self.assertEqual(at.session_state['summary'], '검증 요약')
             self.assertEqual(at.session_state['summary_url'], 'https://youtu.be/dQw4w9WgXcQ')
 
     def test_saved_browser_key_is_used_and_can_be_removed(self):
         with patch.dict(os.environ, {'GROQ_API_KEY': ''}), patch('browser_keys.saved_browser_key', return_value='test-browser-key') as stored, patch('media_engine.summarize_video', return_value='요약') as summarize:
             at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
-            at.text_input[0].input('https://youtu.be/dQw4w9WgXcQ')
+            at.text_input[1].input('https://youtu.be/dQw4w9WgXcQ')
             at.button[0].click().run()
             self.assertFalse(at.exception)
             self.assertEqual(summarize.call_args.args[1], 'test-browser-key')
@@ -47,3 +47,15 @@ class AppTests(unittest.TestCase):
             at.button[0].click().run()
             self.assertIn('API Key', at.warning[0].value)
             self.assertEqual(summarize.call_count, 1)
+
+    def test_key_settings_remain_visible_and_manual_input_overrides_server_key(self):
+        with patch.dict(os.environ, {'GROQ_API_KEY': 'server-test-key'}), patch('browser_keys.saved_browser_key', return_value=None) as component, patch('media_engine.summarize_video', return_value='요약') as summarize:
+            at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
+            self.assertFalse(at.exception)
+            component.assert_called_once()
+            self.assertTrue(any('Groq API 키 설정' in item.label for item in at.expander))
+            at.text_input[0].input('personal-test-key')
+            at.text_input[1].input('https://youtu.be/dQw4w9WgXcQ')
+            at.button[0].click().run()
+            self.assertFalse(at.exception)
+            self.assertEqual(summarize.call_args.args[1], 'personal-test-key')

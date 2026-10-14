@@ -23,9 +23,21 @@ def get_setting(name):
 st.set_page_config(page_title='SNS AI 요약기', page_icon='📝')
 st.title('🎬 SNS 영상 AI 요약기')
 st.caption('YouTube와 Instagram 영상의 자막 또는 음성을 한국어로 요약합니다.')
-api_key = get_setting('GROQ_API_KEY')
-if not api_key:
-    api_key = saved_browser_key()
+configured_key = get_setting('GROQ_API_KEY')
+with st.expander('🔑 Groq API 키 설정', expanded=True):
+    browser_key = saved_browser_key()
+    with st.popover('저장 화면이 보이지 않으면 직접 입력'):
+        manual_key = st.text_input('Groq API Key (이번 접속에서만 사용)', type='password', key='manual_api_key')
+        st.caption('이 입력란의 키는 브라우저를 다시 열면 재입력이 필요합니다. 다음 접속에도 사용하려면 위 저장 화면을 이용해주세요.')
+    api_key = manual_key.strip() or browser_key or configured_key
+    if manual_key.strip():
+        st.caption('직접 입력한 키를 사용합니다.')
+    elif browser_key:
+        st.caption('이 브라우저에 저장된 키를 사용합니다.')
+    elif configured_key:
+        st.caption('서버에 설정된 키를 사용합니다. 개인 키를 저장하면 이 브라우저에서는 개인 키를 사용합니다.')
+    else:
+        st.info('API 키를 입력하고 이 브라우저에 저장을 눌러주세요. 저장 화면이 안 보이면 직접 입력을 이용해주세요.')
 url = st.text_input('요약할 영상 URL (YouTube / Instagram Reel):')
 language_label = st.selectbox('영상 음성 언어', ['자동 감지', '한국어', '영어'])
 language = {'자동 감지': None, '한국어': 'ko', '영어': 'en'}[language_label]
