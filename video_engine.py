@@ -17,7 +17,7 @@ from google.genai import errors, types
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled
 
-ENGINE_VERSION = '1.2.1'
+ENGINE_VERSION = '1.2.2'
 LOADED_SOURCE_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
@@ -315,7 +315,7 @@ class GeminiService:
                 system_instruction=instruction,
                 max_output_tokens=max_output_tokens,
             )
-            if self.model.startswith(('gemini-3.5-flash-lite', 'gemini-3.8-flash')):
+            if self.model.startswith('gemini-3.5-flash-lite'):
                 config.thinking_config = types.ThinkingConfig(thinking_level='minimal')
             elif self.model.startswith('gemini-2.5-flash'):
                 config.temperature = 0.2

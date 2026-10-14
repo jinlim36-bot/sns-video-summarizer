@@ -80,7 +80,7 @@ class AppTests(unittest.TestCase):
         self.assertTrue(video_engine.is_current_source())
         at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
         self.assertFalse(at.exception)
-        self.assertTrue(any('앱 1.2.1 · 처리 모듈 1.2.1' in item.value for item in at.caption))
+        self.assertTrue(any('앱 1.2.2 · 처리 모듈 1.2.2' in item.value for item in at.caption))
 
     def test_new_default_model_overrides_stale_server_choice_in_ui(self):
         with patch.dict(os.environ, {'GEMINI_API_KEY': 'test-only', 'GEMINI_MODEL': 'gemini-2.5-flash'}), patch('browser_keys.saved_browser_key', return_value=None), patch('video_engine.summarize_video', return_value='요약') as summarize:
@@ -91,15 +91,3 @@ class AppTests(unittest.TestCase):
             at.button[0].click().run()
             self.assertFalse(at.exception)
             self.assertEqual(summarize.call_args.kwargs['model'], 'gemini-3.5-flash-lite')
-
-    def test_selected_38_flash_is_used_and_persists_on_rerun(self):
-        with patch.dict(os.environ, {'GEMINI_API_KEY': 'test-only'}), patch('browser_keys.saved_browser_key', return_value=None), patch('video_engine.summarize_video', return_value='3.8 요약') as summarize:
-            at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
-            at.selectbox[1].select('gemini-3.8-flash')
-            at.text_input[1].input('https://youtu.be/dQw4w9WgXcQ')
-            at.button[0].click().run()
-            self.assertFalse(at.exception)
-            self.assertEqual(summarize.call_args.kwargs['model'], 'gemini-3.8-flash')
-            at.selectbox[0].select('한국어').run()
-            self.assertEqual(at.selectbox[1].value, 'gemini-3.8-flash')
-            self.assertEqual(summarize.call_count, 1)
