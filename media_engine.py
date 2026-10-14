@@ -227,13 +227,18 @@ def groq_error_message(error):
     return f'{reason} (HTTP {status}{suffix})'
 
 
-def summarize_text(text, client, model):
+def summarize_text(text, client, model, *, progress=None):
     if not text.strip():
         raise VideoError('영상에서 추출된 내용이 없습니다.')
     if len(text) > MAX_TEXT_CHARS:
         raise VideoError('영상 텍스트가 너무 깁니다. 더 짧은 영상을 선택해주세요.')
 
+    notify = progress or (lambda message: None)
+    fallback_models = None
+    tried_models = {model}
+
     def complete(content, instruction, depth=0):
+        nonlocal model, fallback_models
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -243,6 +248,23 @@ def summarize_text(text, client, model):
             )
         except APIStatusError as exc:
             code, message = groq_error_details(exc)
+            if code in {'model_not_found', 'model_decommissioned', 'model_deprecated'}:
+                if fallback_models is None:
+                    try:
+                        available = {item.id for item in client.models.list().data}
+                    except Exception:
+                        raise exc
+                    # Only try known chat models returned by this account's API.
+                    candidates = ('llama-3.1-8b-instant', 'llama-3.3-70b-versatile',
+                                  'openai/gpt-oss-20b', 'openai/gpt-oss-120b')
+                    fallback_models = [name for name in candidates if name in available]
+                replacement = next((name for name in fallback_models if name not in tried_models), None)
+                if replacement is None:
+                    raise
+                tried_models.add(replacement)
+                model = replacement
+                notify(f'기존 모델을 사용할 수 없어 {model} 모델로 요약합니다.')
+                return complete(content, instruction, depth)
             oversized = (exc.status_code == 413 or code in {'context_length_exceeded', 'request_too_large'}
                          or (exc.status_code == 400 and ('context length' in message.lower() or 'reduce the length' in message.lower())))
             if not oversized or len(content) < 1000 or depth >= 3:
@@ -284,4 +306,4 @@ def summarize_video(url, api_key, *, cookies=None, language=None, model='llama-3
             notify('오디오를 다운로드하고 음성을 인식하고 있습니다.')
             text = transcribe_audio(url, client, cookies=cookies, language=language)
         notify('내용을 요약하고 있습니다.')
-        return summarize_text(text, client, model)
+        return summarize_text(text, client, model, progress=notify)

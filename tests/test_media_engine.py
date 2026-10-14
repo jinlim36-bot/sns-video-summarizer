@@ -136,7 +136,7 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(engine.summarize_text('내용 ' * 700, client, 'model'), '짧은 요약')
         self.assertEqual(client.chat.completions.create.call_count, 4)
 
-    def test_model_error_is_not_retried_and_body_is_not_exposed(self):
+    def test_no_available_fallback_preserves_error_and_hides_body(self):
         import httpx
         error = engine.APIStatusError('model gone', response=httpx.Response(400, request=httpx.Request('POST', 'https://api.groq.com')), body={'error': {'code': 'model_decommissioned', 'message': 'private transcript'}})
         client = MagicMock()
@@ -148,6 +148,30 @@ class MediaTests(unittest.TestCase):
         self.assertIn('model_decommissioned', message)
         self.assertIn('HTTP 400', message)
         self.assertNotIn('private transcript', message)
+
+    def test_missing_model_uses_listed_chat_model(self):
+        import httpx
+        error = engine.APIStatusError('missing', response=httpx.Response(404, request=httpx.Request('POST', 'https://api.groq.com')), body={'error': {'code': 'model_not_found'}})
+        good = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='요약 완료'), finish_reason='stop')])
+        client = MagicMock()
+        client.models.list.return_value = SimpleNamespace(data=[SimpleNamespace(id='whisper-large-v3-turbo'), SimpleNamespace(id='llama-3.1-8b-instant')])
+        client.chat.completions.create.side_effect = [error, good]
+        notices = []
+        self.assertEqual(engine.summarize_text('영상 내용', client, 'missing-model', progress=notices.append), '요약 완료')
+        self.assertEqual(client.chat.completions.create.call_args.kwargs['model'], 'llama-3.1-8b-instant')
+        self.assertIn('llama-3.1-8b-instant', notices[0])
+        client.models.list.assert_called_once()
+
+    def test_model_fallback_is_bounded(self):
+        import httpx
+        error = engine.APIStatusError('missing', response=httpx.Response(404, request=httpx.Request('POST', 'https://api.groq.com')), body={'error': {'code': 'model_not_found'}})
+        client = MagicMock()
+        client.models.list.return_value = SimpleNamespace(data=[SimpleNamespace(id='llama-3.1-8b-instant')])
+        client.chat.completions.create.side_effect = error
+        with self.assertRaises(engine.APIStatusError):
+            engine.summarize_text('영상 내용', client, 'missing-model')
+        self.assertEqual(client.chat.completions.create.call_count, 2)
+        client.models.list.assert_called_once()
 
     def test_long_text_summary_and_empty_response(self):
         client = MagicMock()
