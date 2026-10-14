@@ -15,7 +15,7 @@ small { display: block; margin-top: 6px; line-height: 1.4; }
 </head>
 <body>
 <form id="form">
-<label for="api-key">Groq API Key</label>
+<label for="api-key">Gemini API Key</label>
 <input id="api-key" type="password" placeholder="키를 입력한 후 저장하세요" autocomplete="off" required>
 <button type="submit" id="save">이 브라우저에 저장</button>
 <button type="button" id="forget" hidden>저장된 키 삭제</button>
@@ -24,9 +24,9 @@ small { display: block; margin-top: 6px; line-height: 1.4; }
 <small>키는 이 브라우저에 암호화해 저장합니다. 공용 PC에서는 사용 후 삭제하세요. 브라우저 데이터를 지우면 다시 입력해야 합니다.</small>
 <script>
 'use strict';
-const DB_NAME = 'sns-video-summarizer-credentials-v1';
+const DB_NAME = 'sns-video-summarizer-gemini-credentials-v1';
 const STORE = 'credentials';
-const RECORD = 'groq';
+const RECORD = 'gemini';
 const field = document.getElementById('api-key');
 const status = document.getElementById('status');
 const forget = document.getElementById('forget');

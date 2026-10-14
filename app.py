@@ -2,10 +2,11 @@ import logging
 import os
 
 import streamlit as st
-from groq import AuthenticationError, APIConnectionError, APIStatusError, RateLimitError
+from google.genai import errors
+import httpx
 from streamlit.errors import StreamlitSecretNotFoundError
 
-from media_engine import VideoError, groq_error_message, summarize_video
+from media_engine import VideoError, DEFAULT_MODEL, gemini_error_message, summarize_video
 from browser_keys import saved_browser_key
 
 logger = logging.getLogger(__name__)
@@ -23,11 +24,11 @@ def get_setting(name):
 st.set_page_config(page_title='SNS AI 요약기', page_icon='📝')
 st.title('🎬 SNS 영상 AI 요약기')
 st.caption('YouTube와 Instagram 영상의 자막 또는 음성을 한국어로 요약합니다.')
-configured_key = get_setting('GROQ_API_KEY')
-with st.expander('🔑 Groq API 키 설정', expanded=True):
+configured_key = get_setting('GEMINI_API_KEY') or get_setting('GOOGLE_API_KEY')
+with st.expander('🔑 Gemini API 키 설정', expanded=True):
     browser_key = saved_browser_key()
     with st.popover('저장 화면이 보이지 않으면 직접 입력'):
-        manual_key = st.text_input('Groq API Key (이번 접속에서만 사용)', type='password', key='manual_api_key')
+        manual_key = st.text_input('Gemini API Key (이번 접속에서만 사용)', type='password', key='manual_gemini_api_key')
         st.caption('이 입력란의 키는 브라우저를 다시 열면 재입력이 필요합니다. 다음 접속에도 사용하려면 위 저장 화면을 이용해주세요.')
     api_key = manual_key.strip() or browser_key or configured_key
     if manual_key.strip():
@@ -44,7 +45,7 @@ language = {'자동 감지': None, '한국어': 'ko', '영어': 'en'}[language_l
 
 if st.button('요약 시작하기', type='primary'):
     if not api_key or not api_key.strip():
-        st.warning('Groq API Key가 설정되지 않았습니다.')
+        st.warning('Gemini API Key가 설정되지 않았습니다.')
     elif not url.strip():
         st.warning('영상 URL을 입력해주세요.')
     else:
@@ -52,7 +53,7 @@ if st.button('요약 시작하기', type='primary'):
             try:
                 result = summarize_video(
                     url, api_key, cookies=get_setting('YOUTUBE_COOKIES'),
-                    language=language, model=(get_setting('GROQ_MODEL') or 'llama-3.3-70b-versatile').strip(),
+                    language=language, model=(get_setting('GEMINI_MODEL') or DEFAULT_MODEL).strip(),
                     progress=status.write,
                 )
                 st.session_state['summary'] = result
@@ -62,14 +63,10 @@ if st.button('요약 시작하기', type='primary'):
                 status.update(label='요약에 실패했습니다.', state='error')
                 if isinstance(exc, VideoError):
                     message = str(exc)
-                elif isinstance(exc, AuthenticationError):
-                    message = 'Groq API 키가 유효하지 않습니다. 키 설정을 확인해주세요.'
-                elif isinstance(exc, RateLimitError):
-                    message = 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.'
-                elif isinstance(exc, APIConnectionError):
-                    message = 'Groq 연결에 실패했습니다. 네트워크 접근을 확인해주세요.'
-                elif isinstance(exc, APIStatusError):
-                    message = groq_error_message(exc)
+                elif isinstance(exc, errors.APIError):
+                    message = gemini_error_message(exc)
+                elif isinstance(exc, httpx.RequestError):
+                    message = 'Gemini 연결에 실패했습니다. 네트워크 접근을 확인해주세요.'
                 else:
                     logger.error('Summary failed (%s)', type(exc).__name__)
                     message = '처리 중 오류가 발생했습니다. 설정을 확인하고 다시 시도해주세요.'

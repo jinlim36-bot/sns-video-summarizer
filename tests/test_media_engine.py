@@ -59,9 +59,9 @@ class MediaTests(unittest.TestCase):
 
         def run(_):
             client = MagicMock()
-            client.audio.transcriptions.create.return_value = 'transcript'
+            client.models.generate_content.return_value = SimpleNamespace(text='transcript', candidates=[])
             result = engine.transcribe_audio('https://youtu.be/dQw4w9WgXcQ', client)
-            self.assertNotIn('language', client.audio.transcriptions.create.call_args.kwargs)
+            self.assertIn('원래 언어를 감지', client.models.generate_content.call_args.kwargs['contents'][1])
             return result
 
         with patch.object(engine.yt_dlp, 'YoutubeDL', Downloader), patch.object(engine, 'get_ffmpeg', return_value='/usr/bin/ffmpeg'), patch.object(engine, 'get_audio_duration', return_value=10):
@@ -110,13 +110,13 @@ class MediaTests(unittest.TestCase):
             roots.append(Path(options['outtmpl']).parent)
             return downloader
         client = MagicMock()
-        client.audio.transcriptions.create.return_value = 'recognized'
+        client.models.generate_content.return_value = SimpleNamespace(text='recognized', candidates=[])
         with patch.object(engine.yt_dlp, 'YoutubeDL', side_effect=factory), patch.object(engine, 'get_ffmpeg', return_value='/usr/bin/ffmpeg'), patch.object(engine, 'get_audio_duration', side_effect=[10, 3601]):
             self.assertEqual(engine.transcribe_audio('https://youtu.be/dQw4w9WgXcQ', client), 'recognized')
-            client.audio.transcriptions.create.reset_mock()
+            client.models.generate_content.reset_mock()
             with self.assertRaisesRegex(engine.VideoError, '60분'):
                 engine.transcribe_audio('https://youtu.be/dQw4w9WgXcQ', client)
-            client.audio.transcriptions.create.assert_not_called()
+            client.models.generate_content.assert_not_called()
         self.assertTrue(all(not root.exists() for root in roots))
 
     def test_ffmpeg_duration_metadata(self):
@@ -128,60 +128,118 @@ class MediaTests(unittest.TestCase):
                 engine.get_audio_duration(Path('audio.mp3'))
 
     def test_oversized_request_is_split_and_retried(self):
-        import httpx
-        error = engine.APIStatusError('too large', response=httpx.Response(413, request=httpx.Request('POST', 'https://api.groq.com')), body={'error': {'code': 'request_too_large'}})
-        good = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='짧은 요약'), finish_reason='stop')])
+        error = engine.errors.APIError(413, {'error': {'code': 413, 'message': 'too large'}})
+        good = SimpleNamespace(text='짧은 요약', candidates=[])
         client = MagicMock()
-        client.chat.completions.create.side_effect = [error, good, good, good]
+        client.models.generate_content.side_effect = [error, good, good, good]
         self.assertEqual(engine.summarize_text('내용 ' * 700, client, 'model'), '짧은 요약')
-        self.assertEqual(client.chat.completions.create.call_count, 4)
+        self.assertEqual(client.models.generate_content.call_count, 4)
 
     def test_no_available_fallback_preserves_error_and_hides_body(self):
-        import httpx
-        error = engine.APIStatusError('model gone', response=httpx.Response(400, request=httpx.Request('POST', 'https://api.groq.com')), body={'error': {'code': 'model_decommissioned', 'message': 'private transcript'}})
+        error = engine.errors.APIError(404, {'error': {'code': 404, 'message': 'private transcript'}})
         client = MagicMock()
-        client.chat.completions.create.side_effect = error
-        with self.assertRaises(engine.APIStatusError):
-            engine.summarize_text('내용 ' * 700, client, 'missing-model')
-        self.assertEqual(client.chat.completions.create.call_count, 1)
-        message = engine.groq_error_message(error)
-        self.assertIn('model_decommissioned', message)
-        self.assertIn('HTTP 400', message)
+        client.models.generate_content.side_effect = error
+        client.models.list.return_value = []
+        with self.assertRaises(engine.errors.APIError):
+            engine.summarize_text('내용', client, 'missing-model')
+        self.assertEqual(client.models.generate_content.call_count, 1)
+        message = engine.gemini_error_message(error)
+        self.assertIn('HTTP 404', message)
         self.assertNotIn('private transcript', message)
 
-    def test_missing_model_uses_listed_chat_model(self):
-        import httpx
-        error = engine.APIStatusError('missing', response=httpx.Response(404, request=httpx.Request('POST', 'https://api.groq.com')), body={'error': {'code': 'model_not_found'}})
-        good = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='요약 완료'), finish_reason='stop')])
+    def test_missing_model_uses_listed_generation_model(self):
+        error = engine.errors.APIError(404, {'error': {'code': 404}})
         client = MagicMock()
-        client.models.list.return_value = SimpleNamespace(data=[SimpleNamespace(id='whisper-large-v3-turbo'), SimpleNamespace(id='llama-3.1-8b-instant')])
-        client.chat.completions.create.side_effect = [error, good]
+        client.models.list.return_value = [SimpleNamespace(name='models/gemini-embedding-001', supported_actions=['embedContent']), SimpleNamespace(name='models/gemini-2.5-flash', supported_actions=['generateContent'])]
+        client.models.generate_content.side_effect = [error, SimpleNamespace(text='요약 완료', candidates=[])]
         notices = []
         self.assertEqual(engine.summarize_text('영상 내용', client, 'missing-model', progress=notices.append), '요약 완료')
-        self.assertEqual(client.chat.completions.create.call_args.kwargs['model'], 'llama-3.1-8b-instant')
-        self.assertIn('llama-3.1-8b-instant', notices[0])
+        self.assertEqual(client.models.generate_content.call_args.kwargs['model'], 'gemini-2.5-flash')
+        self.assertIn('gemini-2.5-flash', notices[0])
         client.models.list.assert_called_once()
 
     def test_model_fallback_is_bounded(self):
-        import httpx
-        error = engine.APIStatusError('missing', response=httpx.Response(404, request=httpx.Request('POST', 'https://api.groq.com')), body={'error': {'code': 'model_not_found'}})
+        error = engine.errors.APIError(404, {'error': {'code': 404}})
         client = MagicMock()
-        client.models.list.return_value = SimpleNamespace(data=[SimpleNamespace(id='llama-3.1-8b-instant')])
-        client.chat.completions.create.side_effect = error
-        with self.assertRaises(engine.APIStatusError):
+        client.models.list.return_value = [SimpleNamespace(name='models/gemini-2.5-flash', supported_actions=['generateContent'])]
+        client.models.generate_content.side_effect = error
+        with self.assertRaises(engine.errors.APIError):
             engine.summarize_text('영상 내용', client, 'missing-model')
-        self.assertEqual(client.chat.completions.create.call_count, 2)
+        self.assertEqual(client.models.generate_content.call_count, 2)
         client.models.list.assert_called_once()
+
+    def test_upload_is_deleted_when_generation_fails(self):
+        error = engine.errors.APIError(403, {'error': {'code': 403}})
+        client = MagicMock()
+        client.files.upload.return_value = SimpleNamespace(name='files/test', state='ACTIVE')
+        client.models.generate_content.side_effect = error
+        service = engine.GeminiService(client)
+        with self.assertRaises(engine.errors.APIError):
+            service.transcribe(Path('test.mp3'))
+        client.files.delete.assert_called_once_with(name='files/test')
+
+    def test_failed_file_processing_is_cleaned(self):
+        client = MagicMock()
+        client.files.upload.return_value = SimpleNamespace(name='files/test', state='FAILED')
+        with self.assertRaises(engine.VideoError):
+            engine.GeminiService(client).transcribe(Path('test.mp3'))
+        client.models.generate_content.assert_not_called()
+        client.files.delete.assert_called_once_with(name='files/test')
+
+    def test_invalid_key_is_explained_without_echoing_key(self):
+        error = engine.errors.APIError(400, {'error': {'code':400, 'message':'secret value', 'details':[{'reason':'API_KEY_INVALID'}]}})
+        message = engine.gemini_error_message(error)
+        self.assertIn('유효하지', message)
+        self.assertNotIn('secret value', message)
+
+    def test_real_gemini_sdk_request_and_response_serialization(self):
+        import httpx
+        import json
+        requests_seen = []
+        def handle(request):
+            requests_seen.append(request)
+            return httpx.Response(200, json={'candidates': [{'content': {'role': 'model', 'parts': [{'text': 'SDK 요약'}]}, 'finishReason': 'STOP'}]})
+        http_client = httpx.Client(transport=httpx.MockTransport(handle))
+        with engine.genai.Client(api_key='test-key-not-real', http_options=engine.types.HttpOptions(httpx_client=http_client)) as client:
+            self.assertEqual(engine.summarize_text('원문 내용', client), 'SDK 요약')
+        body = json.loads(requests_seen[0].content)
+        self.assertIn('gemini-flash-latest:generateContent', str(requests_seen[0].url))
+        self.assertEqual(body['generationConfig']['maxOutputTokens'], 4096)
+        self.assertIn('원문 내용', body['contents'][0]['parts'][0]['text'])
+
+    def test_long_audio_is_split_before_gemini_transcription(self):
+        roots = []
+        downloader = MagicMock()
+        downloader.__enter__.return_value = downloader
+        downloader.extract_info.return_value = {'duration': 620}
+        def factory(options):
+            roots.append(Path(options['outtmpl']).parent)
+            audio = roots[-1] / 'audio.mp3'
+            audio.write_bytes(b'audio')
+            downloader.process_ie_result.return_value = {'filepath': str(audio)}
+            return downloader
+        clips = []
+        def split(command, **kwargs):
+            clips.append(command)
+            Path(command[-1]).write_bytes(b'clip')
+        service = MagicMock()
+        service.transcribe.side_effect = ['first', 'second', 'third']
+        with patch.object(engine.yt_dlp, 'YoutubeDL', side_effect=factory), patch.object(engine, 'get_ffmpeg', return_value='/usr/bin/ffmpeg'), patch.object(engine, 'get_audio_duration', return_value=620), patch.object(engine.subprocess, 'run', side_effect=split):
+            result = engine.transcribe_audio('https://youtu.be/dQw4w9WgXcQ', MagicMock(), service=service)
+        self.assertEqual(result, 'first\nsecond\nthird')
+        self.assertEqual([command[command.index('-ss') + 1] for command in clips], ['0', '300', '600'])
+        self.assertEqual(service.transcribe.call_count, 3)
+        self.assertFalse(roots[0].exists())
 
     def test_long_text_summary_and_empty_response(self):
         client = MagicMock()
         def response(*args, **kwargs):
-            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='요약'), finish_reason='stop')])
-        client.chat.completions.create.side_effect = response
+            return SimpleNamespace(text='요약', candidates=[])
+        client.models.generate_content.side_effect = response
         self.assertEqual(engine.summarize_text('내용 ' * 5000, client, 'model'), '요약')
-        self.assertGreater(client.chat.completions.create.call_count, 1)
-        client.chat.completions.create.side_effect = None
-        client.chat.completions.create.return_value = SimpleNamespace(choices=[])
+        self.assertGreater(client.models.generate_content.call_count, 1)
+        client.models.generate_content.side_effect = None
+        client.models.generate_content.return_value = SimpleNamespace(text=None, candidates=[])
         with self.assertRaises(engine.VideoError):
             engine.summarize_text('내용', client, 'model')
 
