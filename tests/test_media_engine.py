@@ -127,6 +127,28 @@ class MediaTests(unittest.TestCase):
             with self.assertRaises(engine.VideoError):
                 engine.get_audio_duration(Path('audio.mp3'))
 
+    def test_oversized_request_is_split_and_retried(self):
+        import httpx
+        error = engine.APIStatusError('too large', response=httpx.Response(413, request=httpx.Request('POST', 'https://api.groq.com')), body={'error': {'code': 'request_too_large'}})
+        good = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='짧은 요약'), finish_reason='stop')])
+        client = MagicMock()
+        client.chat.completions.create.side_effect = [error, good, good, good]
+        self.assertEqual(engine.summarize_text('내용 ' * 700, client, 'model'), '짧은 요약')
+        self.assertEqual(client.chat.completions.create.call_count, 4)
+
+    def test_model_error_is_not_retried_and_body_is_not_exposed(self):
+        import httpx
+        error = engine.APIStatusError('model gone', response=httpx.Response(400, request=httpx.Request('POST', 'https://api.groq.com')), body={'error': {'code': 'model_decommissioned', 'message': 'private transcript'}})
+        client = MagicMock()
+        client.chat.completions.create.side_effect = error
+        with self.assertRaises(engine.APIStatusError):
+            engine.summarize_text('내용 ' * 700, client, 'missing-model')
+        self.assertEqual(client.chat.completions.create.call_count, 1)
+        message = engine.groq_error_message(error)
+        self.assertIn('model_decommissioned', message)
+        self.assertIn('HTTP 400', message)
+        self.assertNotIn('private transcript', message)
+
     def test_long_text_summary_and_empty_response(self):
         client = MagicMock()
         def response(*args, **kwargs):

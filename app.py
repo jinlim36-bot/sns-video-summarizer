@@ -5,7 +5,7 @@ import streamlit as st
 from groq import AuthenticationError, APIConnectionError, APIStatusError, RateLimitError
 from streamlit.errors import StreamlitSecretNotFoundError
 
-from media_engine import VideoError, summarize_video
+from media_engine import VideoError, groq_error_message, summarize_video
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ if st.button('요약 시작하기', type='primary'):
             try:
                 result = summarize_video(
                     url, api_key, cookies=get_setting('YOUTUBE_COOKIES'),
-                    language=language, model=get_setting('GROQ_MODEL') or 'llama-3.3-70b-versatile',
+                    language=language, model=(get_setting('GROQ_MODEL') or 'llama-3.3-70b-versatile').strip(),
                     progress=status.write,
                 )
                 st.session_state['summary'] = result
@@ -56,7 +56,7 @@ if st.button('요약 시작하기', type='primary'):
                 elif isinstance(exc, APIConnectionError):
                     message = 'Groq 연결에 실패했습니다. 네트워크 접근을 확인해주세요.'
                 elif isinstance(exc, APIStatusError):
-                    message = 'Groq 요청에 실패했습니다. 모델 설정과 서비스 상태를 확인해주세요.'
+                    message = groq_error_message(exc)
                 else:
                     logger.error('Summary failed (%s)', type(exc).__name__)
                     message = '처리 중 오류가 발생했습니다. 설정을 확인하고 다시 시도해주세요.'
