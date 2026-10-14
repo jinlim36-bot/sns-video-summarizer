@@ -339,6 +339,28 @@ class MediaTests(unittest.TestCase):
             engine.GeminiService(client).generate('내용', '요약')
         self.assertEqual(client.models.generate_content.call_count, 1)
 
+    def test_38_flash_sdk_audio_and_summary_requests(self):
+        import httpx
+        import json
+        requests_seen = []
+        def handle(request):
+            requests_seen.append(request)
+            text = '전사 내용' if len(requests_seen) == 1 else '요약 내용'
+            return httpx.Response(200, json={'candidates': [{'content': {'role':'model', 'parts':[{'text':text}]}, 'finishReason':'STOP'}]})
+        http_client = httpx.Client(transport=httpx.MockTransport(handle))
+        with tempfile.TemporaryDirectory() as root, engine.genai.Client(api_key='test-not-real', http_options=engine.types.HttpOptions(httpx_client=http_client)) as client:
+            path = Path(root) / 'audio.mp3'
+            path.write_bytes(b'test-audio')
+            service = engine.GeminiService(client, model='gemini-3.8-flash')
+            text = service.transcribe(path)
+            self.assertEqual(engine.summarize_text(text, client, service=service), '요약 내용')
+        self.assertEqual(len(requests_seen), 2)
+        for request in requests_seen:
+            self.assertIn('gemini-3.8-flash:generateContent', str(request.url))
+            config = json.loads(request.content)['generationConfig']
+            self.assertEqual(config['thinkingConfig']['thinking_level'], 'MINIMAL')
+            self.assertNotIn('thinking_budget', config['thinkingConfig'])
+
     def test_long_text_summary_and_empty_response(self):
         client = MagicMock()
         def response(*args, **kwargs):

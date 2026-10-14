@@ -66,10 +66,10 @@ Gemini 요약 입력 한도 오류(413 등)는 입력을 더 작은 구간으로
 
 [Google AI Studio](https://aistudio.google.com/apikey)에서 발급한 Gemini API 키를 입력하세요. 기존 Groq 키는 사용할 수 없으며, 브라우저 저장소도 Gemini용으로 분리되어 자동으로 재사용하지 않습니다. 서버에서 설정하려면 Streamlit Cloud Secrets에 `GEMINI_API_KEY`를 등록합니다. `GEMINI_MODEL`은 선택 목록에 추가할 대안 모델 설정입니다. 화면의 기본 선택은 `gemini-3.5-flash-lite`입니다.
 
-자막이 없으면 MP3 구간을 Gemini 요청에 직접 포함해 원래 언어로 전사합니다. 별도 Files API 업로드·대기·삭제를 사용하지 않습니다. 2분을 초과하는 오디오는 2분 단위로 분할합니다. 504 등 일시 오류는 제한된 횟수만 재시도하며, 전사가 계속 지연되면 해당 구간을 최대 두 번 더 분할합니다. Gemini 3.5 Flash-Lite는 `thinking_level=minimal`을 사용해 전사 지연을 줄입니다. 직접 전송하는 오디오는 8MB로 제한하며, 초과하면 전송 전 다시 인코딩합니다. 전사와 요약 과정에서 오디오와 텍스트가 Google로 전송됩니다. 긴 영상은 API 호출 횟수·비용이 증가하며 무료 할당량에서 요청이 제한될 수 있습니다.
+자막이 없으면 MP3 구간을 Gemini 요청에 직접 포함해 원래 언어로 전사합니다. 별도 Files API 업로드·대기·삭제를 사용하지 않습니다. 2분을 초과하는 오디오는 2분 단위로 분할합니다. 504 등 일시 오류는 제한된 횟수만 재시도하며, 전사가 계속 지연되면 해당 구간을 최대 두 번 더 분할합니다. Gemini 3.5 Flash-Lite와 3.8 Flash는 `thinking_level=minimal`을 사용해 전사 지연을 줄입니다. 직접 전송하는 오디오는 8MB로 제한하며, 초과하면 전송 전 다시 인코딩합니다. 전사와 요약 과정에서 오디오와 텍스트가 Google로 전송됩니다. 긴 영상은 API 호출 횟수·비용이 증가하며 무료 할당량에서 요청이 제한될 수 있습니다.
 
 ## 배포 갱신 확인
 
-제목 아래 **앱 1.2.0 · 처리 모듈 1.2.0**로 화면과 처리 코드의 버전을 함께 확인합니다. 실행 중인 처리 모듈과 디스크의 소스가 다르면 API 호출을 중지하고 재시작을 안내합니다. Streamlit Cloud에서 **Manage app → Reboot app** 후 새로고침하세요. 처리 코드는 `video_engine.py`에 있습니다.
+제목 아래 **앱 1.2.1 · 처리 모듈 1.2.1**로 화면과 처리 코드의 버전을 함께 확인합니다. 실행 중인 처리 모듈과 디스크의 소스가 다르면 API 호출을 중지하고 재시작을 안내합니다. Streamlit Cloud에서 **Manage app → Reboot app** 후 새로고침하세요. 처리 코드는 `video_engine.py`에 있습니다.
 
-Gemini 3.5 Flash-Lite의 모델 ID는 Google 공식 [시작 예제](https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_Generate_Content.ipynb)에서 확인했습니다. 앱은 `gemini-3.5-flash-lite`로 음성 전사와 요약을 수행하며, 화면에서 실제 선택한 모델을 표시합니다. 공식 문서에서의 지원과 현재 API 키의 사용 권한·할당량은 별개이므로 실제 호출은 해당 계정에서 확인해야 합니다.
+Gemini 3.5 Flash-Lite의 모델 ID는 Google 공식 [시작 예제](https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_Generate_Content.ipynb)에서 확인했습니다. 기본 선택은 `gemini-3.5-flash-lite`이며 드롭다운에서 `gemini-3.8-flash`도 선택할 수 있습니다. 선택한 모델을 음성 전사와 요약에 모두 사용하고 화면에 표시합니다. 공식 문서에서의 지원과 현재 API 키의 사용 권한·할당량은 별개이므로 실제 호출은 해당 계정에서 확인해야 합니다.
