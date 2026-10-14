@@ -6,6 +6,7 @@ from groq import AuthenticationError, APIConnectionError, APIStatusError, RateLi
 from streamlit.errors import StreamlitSecretNotFoundError
 
 from media_engine import VideoError, groq_error_message, summarize_video
+from browser_keys import saved_browser_key
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ st.title('🎬 SNS 영상 AI 요약기')
 st.caption('YouTube와 Instagram 영상의 자막 또는 음성을 한국어로 요약합니다.')
 api_key = get_setting('GROQ_API_KEY')
 if not api_key:
-    api_key = st.text_input('Groq API Key를 입력하세요:', type='password')
+    api_key = saved_browser_key()
 url = st.text_input('요약할 영상 URL (YouTube / Instagram Reel):')
 language_label = st.selectbox('영상 음성 언어', ['자동 감지', '한국어', '영어'])
 language = {'자동 감지': None, '한국어': 'ko', '영어': 'en'}[language_label]

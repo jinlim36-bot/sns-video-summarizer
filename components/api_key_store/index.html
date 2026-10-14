@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body { font: 14px system-ui, sans-serif; margin: 0; color: #31333f; }
+label { display: block; margin-bottom: 6px; }
+input { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #a6a9af; border-radius: 6px; }
+button { margin: 8px 6px 0 0; padding: 8px 12px; border: 1px solid #a6a9af; border-radius: 6px; background: #fff; cursor: pointer; }
+small { display: block; margin-top: 6px; line-height: 1.4; }
+#status { margin-top: 6px; }
+@media (prefers-color-scheme: dark) { body { color: #fafafa; } input, button { color: #fafafa; background: #262730; } }
+</style>
+</head>
+<body>
+<form id="form">
+<label for="api-key">Groq API Key</label>
+<input id="api-key" type="password" placeholder="키를 입력한 후 저장하세요" autocomplete="off" required>
+<button type="submit" id="save">이 브라우저에 저장</button>
+<button type="button" id="forget" hidden>저장된 키 삭제</button>
+</form>
+<div id="status" role="status" aria-live="polite"></div>
+<small>키는 이 브라우저에 암호화해 저장합니다. 공용 PC에서는 사용 후 삭제하세요. 브라우저 데이터를 지우면 다시 입력해야 합니다.</small>
+<script>
+'use strict';
+const DB_NAME = 'sns-video-summarizer-credentials-v1';
+const STORE = 'credentials';
+const RECORD = 'groq';
+const field = document.getElementById('api-key');
+const status = document.getElementById('status');
+const forget = document.getElementById('forget');
+const save = document.getElementById('save');
+let initialized = false;
+let database;
+function send(type, extra = {}) {
+  window.parent.postMessage({isStreamlitMessage: true, type, ...extra}, '*');
+}
+function emit(apiKey) {
+  send('streamlit:setComponentValue', {value: {api_key: apiKey}, dataType: 'json'});
+}
+function resize() { send('streamlit:setFrameHeight', {height: 210}); }
+function openDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(new Error('storage unavailable'));
+    request.onblocked = () => reject(new Error('storage blocked'));
+  });
+}
+async function access(mode, operation) {
+  database ||= await openDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(STORE, mode);
+    const request = operation(transaction.objectStore(STORE));
+    transaction.oncomplete = () => resolve(request.result);
+    transaction.onerror = () => reject(new Error('storage failed'));
+    transaction.onabort = () => reject(new Error('storage aborted'));
+  });
+}
+function storedMessage() {
+  status.textContent = '저장된 키를 사용합니다. 변경하려면 새 키를 입력해 저장하세요.';
+  forget.hidden = false;
+}
+async function restore() {
+  try {
+    const record = await access('readonly', store => store.get(RECORD));
+    if (record) {
+      const bytes = await crypto.subtle.decrypt({name: 'AES-GCM', iv: record.iv}, record.key, record.ciphertext);
+      const apiKey = new TextDecoder().decode(bytes);
+      if (apiKey) { storedMessage(); emit(apiKey); }
+    }
+  } catch (_) {
+    status.textContent = '저장된 키를 불러오지 못했습니다. 키를 다시 입력해주세요.';
+    forget.hidden = false;
+  }
+}
+window.addEventListener('message', event => {
+  if (event.source !== window.parent || event.data?.type !== 'streamlit:render') return;
+  resize();
+  if (!initialized) { initialized = true; restore(); }
+});
+document.getElementById('form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const apiKey = field.value.trim();
+  if (!apiKey) { status.textContent = 'API 키를 입력해주세요.'; return; }
+  save.disabled = true;
+  forget.disabled = true;
+  try {
+    const key = await crypto.subtle.generateKey({name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt({name: 'AES-GCM', iv}, key, new TextEncoder().encode(apiKey));
+    await access('readwrite', store => store.put({key, iv, ciphertext}, RECORD));
+    storedMessage();
+  } catch (_) {
+    status.textContent = '브라우저 저장이 차단되어 이번 접속에서만 키를 사용합니다.';
+    forget.hidden = false;
+  } finally {
+    field.value = '';
+    emit(apiKey);
+    save.disabled = false;
+    forget.disabled = false;
+  }
+});
+forget.addEventListener('click', async () => {
+  save.disabled = true;
+  forget.disabled = true;
+  field.value = '';
+  // Revoke the current session immediately, even when browser storage fails.
+  emit(null);
+  try {
+    await access('readwrite', store => store.delete(RECORD));
+    status.textContent = '저장된 키를 삭제했습니다.';
+    forget.hidden = true;
+  } catch (_) {
+    status.textContent = '저장소에서 삭제하지 못했습니다. 브라우저 설정에서 이 사이트 데이터를 삭제해주세요.';
+  } finally {
+    save.disabled = false;
+    forget.disabled = false;
+  }
+});
+send('streamlit:componentReady', {apiVersion: 1});
+resize();
+</script>
+</body>
+</html>
