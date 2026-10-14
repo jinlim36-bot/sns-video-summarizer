@@ -151,18 +151,18 @@ class MediaTests(unittest.TestCase):
     def test_missing_model_uses_listed_generation_model(self):
         error = engine.errors.APIError(404, {'error': {'code': 404}})
         client = MagicMock()
-        client.models.list.return_value = [SimpleNamespace(name='models/gemini-embedding-001', supported_actions=['embedContent']), SimpleNamespace(name='models/gemini-2.5-flash', supported_actions=['generateContent'])]
+        client.models.list.return_value = [SimpleNamespace(name='models/gemini-embedding-001', supported_actions=['embedContent']), SimpleNamespace(name='models/gemini-3.5-flash-lite', supported_actions=['generateContent'])]
         client.models.generate_content.side_effect = [error, SimpleNamespace(text='요약 완료', candidates=[])]
         notices = []
         self.assertEqual(engine.summarize_text('영상 내용', client, 'missing-model', progress=notices.append), '요약 완료')
-        self.assertEqual(client.models.generate_content.call_args.kwargs['model'], 'gemini-2.5-flash')
-        self.assertIn('gemini-2.5-flash', notices[0])
+        self.assertEqual(client.models.generate_content.call_args.kwargs['model'], 'gemini-3.5-flash-lite')
+        self.assertIn('gemini-3.5-flash-lite', notices[0])
         client.models.list.assert_called_once()
 
     def test_model_fallback_is_bounded(self):
         error = engine.errors.APIError(404, {'error': {'code': 404}})
         client = MagicMock()
-        client.models.list.return_value = [SimpleNamespace(name='models/gemini-2.5-flash', supported_actions=['generateContent'])]
+        client.models.list.return_value = [SimpleNamespace(name='models/gemini-3.5-flash-lite', supported_actions=['generateContent'])]
         client.models.generate_content.side_effect = error
         with self.assertRaises(engine.errors.APIError):
             engine.summarize_text('영상 내용', client, 'missing-model')
@@ -211,8 +211,11 @@ class MediaTests(unittest.TestCase):
         with engine.genai.Client(api_key='test-key-not-real', http_options=engine.types.HttpOptions(httpx_client=http_client)) as client:
             self.assertEqual(engine.summarize_text('원문 내용', client), 'SDK 요약')
         body = json.loads(requests_seen[0].content)
-        self.assertIn('gemini-2.5-flash:generateContent', str(requests_seen[0].url))
+        self.assertIn('gemini-3.5-flash-lite:generateContent', str(requests_seen[0].url))
         self.assertEqual(body['generationConfig']['maxOutputTokens'], 4096)
+        self.assertEqual(body['generationConfig']['thinkingConfig']['thinking_level'], 'MINIMAL')
+        self.assertNotIn('thinkingBudget', body['generationConfig']['thinkingConfig'])
+        self.assertNotIn('temperature', body['generationConfig'])
         self.assertIn('원문 내용', body['contents'][0]['parts'][0]['text'])
 
     def test_long_audio_is_split_before_gemini_transcription(self):
@@ -296,7 +299,7 @@ class MediaTests(unittest.TestCase):
             nonlocal count
             requests_seen.append(request)
             if request.method == 'GET':
-                return httpx.Response(200, json={'models': [{'name': 'models/gemini-2.5-flash-lite', 'supportedGenerationMethods': ['generateContent']}]})
+                return httpx.Response(200, json={'models': [{'name': 'models/gemini-flash-lite-latest', 'supportedGenerationMethods': ['generateContent']}]})
             count += 1
             if count <= 2:
                 return httpx.Response(503, json={'error': {'code':503, 'status':'UNAVAILABLE', 'message':'overloaded'}})
@@ -309,14 +312,14 @@ class MediaTests(unittest.TestCase):
             with engine.genai.Client(api_key='test-key-not-real', http_options=engine.types.HttpOptions(httpx_client=http_client, retry_options=engine.types.HttpRetryOptions(attempts=1))) as client:
                 service = engine.GeminiService(client, progress=notices.append)
                 self.assertEqual(service.transcribe(path), '전사 복구')
-                self.assertEqual(service.model, 'gemini-2.5-flash-lite')
+                self.assertEqual(service.model, 'gemini-flash-lite-latest')
         self.assertEqual(count, 3)
         self.assertEqual(len(requests_seen), 4)
         body = json.loads(requests_seen[-1].content)
         audio = body['contents'][0]['parts'][0]['inlineData']
         self.assertEqual(audio['mime_type'], 'audio/mpeg')
         self.assertEqual(base64.b64decode(audio['data']), b'audio-test-data')
-        self.assertIn('gemini-2.5-flash-lite:generateContent', str(requests_seen[-1].url))
+        self.assertIn('gemini-flash-lite-latest:generateContent', str(requests_seen[-1].url))
         self.assertFalse(any('/upload/' in str(request.url) for request in requests_seen))
 
     def test_pipeline_error_identifies_transcription_stage_without_raw_body(self):
@@ -327,6 +330,14 @@ class MediaTests(unittest.TestCase):
         self.assertIn('오디오 전사 단계', str(raised.exception))
         self.assertIn('HTTP 503', str(raised.exception))
         self.assertNotIn('private transcript', str(raised.exception))
+
+    def test_legacy_model_is_not_selected_as_fallback(self):
+        client = MagicMock()
+        client.models.list.return_value = [SimpleNamespace(name='models/gemini-2.5-flash-lite', supported_actions=['generateContent'])]
+        client.models.generate_content.side_effect = engine.errors.APIError(404, {'error': {'code':404}})
+        with self.assertRaises(engine.errors.APIError):
+            engine.GeminiService(client).generate('내용', '요약')
+        self.assertEqual(client.models.generate_content.call_count, 1)
 
     def test_long_text_summary_and_empty_response(self):
         client = MagicMock()

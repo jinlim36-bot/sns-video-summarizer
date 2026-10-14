@@ -17,7 +17,7 @@ from google.genai import errors, types
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled
 
-ENGINE_VERSION = '1.1.1'
+ENGINE_VERSION = '1.2.0'
 LOADED_SOURCE_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
@@ -31,7 +31,7 @@ MAX_INLINE_AUDIO_BYTES = 8 * 1024 * 1024
 MAX_DURATION = 3600
 CHUNK_CHARS = 4000
 MAX_TEXT_CHARS = 240000
-DEFAULT_MODEL = 'gemini-2.5-flash'
+DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 AUDIO_CHUNK_SECONDS = 120
 TRANSIENT_CODES = {500, 502, 503, 504}
 
@@ -299,7 +299,7 @@ class GeminiService:
                              if item.name and 'generateContent' in (item.supported_actions or [])}
             except Exception:
                 return False
-            self.fallbacks = [name for name in ('gemini-2.5-flash-lite', DEFAULT_MODEL, 'gemini-flash-latest') if name in available]
+            self.fallbacks = [name for name in (DEFAULT_MODEL, 'gemini-flash-lite-latest', 'gemini-flash-latest') if name in available]
         replacement = next((name for name in self.fallbacks if name not in self.tried), None)
         if not replacement:
             return False
@@ -312,10 +312,13 @@ class GeminiService:
         failures = 0
         while True:
             config = types.GenerateContentConfig(
-                system_instruction=instruction, temperature=0.2,
+                system_instruction=instruction,
                 max_output_tokens=max_output_tokens,
             )
-            if self.model.startswith('gemini-2.5-flash'):
+            if self.model.startswith('gemini-3.5-flash-lite'):
+                config.thinking_config = types.ThinkingConfig(thinking_level='minimal')
+            elif self.model.startswith('gemini-2.5-flash'):
+                config.temperature = 0.2
                 config.thinking_config = types.ThinkingConfig(thinking_budget=0)
             try:
                 return response_text(self.client.models.generate_content(
@@ -395,6 +398,7 @@ def summarize_video(url, api_key, *, cookies=None, language=None, model=DEFAULT_
     if not api_key or not api_key.strip():
         raise VideoError('Gemini API Key를 입력해주세요.')
     notify = progress or (lambda message: None)
+    notify(f'Gemini 모델: {model}')
     with genai.Client(vertexai=False, api_key=api_key.strip(), http_options=types.HttpOptions(
             timeout=120000, retry_options=types.HttpRetryOptions(attempts=1))) as client:
         service = GeminiService(client, model, notify)

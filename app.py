@@ -25,7 +25,7 @@ def get_setting(name):
 st.set_page_config(page_title='SNS AI 요약기', page_icon='📝')
 st.title('🎬 SNS 영상 AI 요약기')
 st.caption('YouTube와 Instagram 영상의 자막 또는 음성을 한국어로 요약합니다.')
-st.caption(f'앱 1.1.1 · 처리 모듈 {video_engine.ENGINE_VERSION}')
+st.caption(f'앱 1.2.0 · 처리 모듈 {video_engine.ENGINE_VERSION}')
 if not video_engine.is_current_source():
     st.error('업데이트된 파일과 실행 중인 처리 모듈이 다릅니다. Manage app에서 Reboot app을 실행한 뒤 새로고침해주세요.')
     st.stop()
@@ -47,6 +47,11 @@ with st.expander('🔑 Gemini API 키 설정', expanded=True):
 url = st.text_input('요약할 영상 URL (YouTube / Instagram Reel):')
 language_label = st.selectbox('영상 음성 언어', ['자동 감지', '한국어', '영어'])
 language = {'자동 감지': None, '한국어': 'ko', '영어': 'en'}[language_label]
+model_options = [DEFAULT_MODEL]
+configured_model = (get_setting('GEMINI_MODEL') or '').strip()
+if configured_model and configured_model not in model_options:
+    model_options.append(configured_model)
+selected_model = st.selectbox('Gemini 모델', model_options, index=0)
 
 if st.button('요약 시작하기', type='primary'):
     if not api_key or not api_key.strip():
@@ -58,7 +63,7 @@ if st.button('요약 시작하기', type='primary'):
             try:
                 result = summarize_video(
                     url, api_key, cookies=get_setting('YOUTUBE_COOKIES'),
-                    language=language, model=(get_setting('GEMINI_MODEL') or DEFAULT_MODEL).strip(),
+                    language=language, model=selected_model,
                     progress=status.write,
                 )
                 st.session_state['summary'] = result
