@@ -2,50 +2,38 @@ name: Keep Streamlit Alive
 
 on:
   schedule:
-    # 6시간마다 실행 (하루 4회)
-    - cron: '0 */6 * * *'
+    # Every two hours, staggered away from the busy start of the hour (UTC).
+    - cron: '17 */2 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: streamlit-keep-alive
+  cancel-in-progress: false
 
 jobs:
   wake-streamlit:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      STREAMLIT_APP_URL: ${{ vars.STREAMLIT_APP_URL || 'https://sns-video-summarizer-hukphapjbrrte5n87fyat9.streamlit.app' }}
+      STREAMLIT_APP_TITLE: '🎬 SNS 영상 AI 요약기'
     steps:
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - name: Check app URL configuration
+        run: |
+          if [ -z "$STREAMLIT_APP_URL" ]; then
+            echo '::error::Set the STREAMLIT_APP_URL repository Actions variable to the deployed SNS app URL.'
+            exit 1
+          fi
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-
-      - name: Install Playwright
+          python-version: '3.12'
+      - name: Install browser
         run: |
-          pip install playwright
-          playwright install chromium
-
-      - name: Visit and Wake App
-        run: |
-          python - << 'EOF'
-          from playwright.sync_api import sync_playwright
-
-          APP_URL = "https://otc-pm-job-monitor.streamlit.app"
-
-          with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            
-            print(f"Connecting to {APP_URL}...")
-            page.goto(APP_URL, timeout=90000)
-            
-            # 페이지 로드 및 웹소켓 연결 대기
-            page.wait_for_timeout(10000)
-            
-            # 슬립 상태일 경우 나타나는 'Wake' 버튼 감지 및 클릭
-            wake_buttons = page.locator("button:has-text('Yes, get this app back up')")
-            if wake_buttons.count() > 0:
-                print("App is asleep. Clicking wake-up button...")
-                wake_buttons.first.click()
-                page.wait_for_timeout(15000)
-                print("Wake-up request sent!")
-            else:
-                print("App is already awake. Session renewed.")
-                
-            browser.close()
-          EOF
+          python -m pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Visit, wake, and verify app
+        run: python scripts/keep_streamlit_alive.py

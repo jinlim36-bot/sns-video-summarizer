@@ -39,3 +39,13 @@ python -m pip check
 ```
 
 테스트는 외부 API를 대체해 URL 검증, 최신 자막 응답, 자막 오류 구분, 동시 다운로드 파일 격리, 실패 시 정리, 영상 길이 제한, 긴 텍스트 요약, 키 조회와 화면 결과 유지 등을 검증합니다. 실제 외부 영상 다운로드와 Groq 호출은 유효한 키와 네트워크 접근이 있는 환경에서 별도로 확인해야 합니다.
+
+## Streamlit Cloud 자동 방문
+
+GitHub Actions의 `Keep Streamlit Alive` 워크플로가 2시간마다 브라우저로 앱을 방문합니다. 슬립 화면이면 깨우기 버튼을 누르고, 실제 앱 제목과 요약 버튼이 표시되는지 확인한 뒤 60초 동안 세션을 유지합니다. 요약 버튼을 누르거나 Groq API를 호출하지 않습니다.
+
+1. 기본 대상은 `https://sns-video-summarizer-hukphapjbrrte5n87fyat9.streamlit.app`입니다. 주소가 바뀌면 GitHub 저장소의 **Settings → Secrets and variables → Actions → Variables**에 `STREAMLIT_APP_URL`을 등록해 덮어쓸 수 있습니다.
+2. **Actions → Keep Streamlit Alive → Run workflow**로 수동 실행해 성공 여부를 확인합니다.
+3. 기본 브랜치에 워크플로가 있어야 정기 실행됩니다. 저장소에서 Actions가 허용되어 있어야 합니다.
+
+예약 실행은 지연되거나 누락될 수 있고, 공개 저장소는 60일간 저장소 활동이 없으면 예약 워크플로가 비활성화될 수 있습니다. 플랫폼이 자동 방문을 실제 사용자 활동으로 인정하는지도 보장할 수 없으므로 이 작업은 상시 가동을 보장하지 않습니다. 지속 가동이 필수라면 상시 실행을 지원하는 호스팅을 사용하세요. 비공개 앱의 로그인 화면은 이 워크플로로 통과하지 않습니다.
