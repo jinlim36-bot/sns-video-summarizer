@@ -23,7 +23,7 @@ def get_setting(name):
 
 st.set_page_config(page_title='SNS AI 요약기', page_icon='📝')
 st.title('🎬 SNS 영상 AI 요약기')
-st.caption('YouTube와 Instagram 영상의 자막 또는 음성을 한국어로 요약합니다.')
+st.caption('YouTube와 Instagram 영상의 자막 또는 음성을 한국어로 요약합니다. · 버전 1.1.0')
 configured_key = get_setting('GEMINI_API_KEY') or get_setting('GOOGLE_API_KEY')
 with st.expander('🔑 Gemini API 키 설정', expanded=True):
     browser_key = saved_browser_key()

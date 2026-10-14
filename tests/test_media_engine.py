@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -168,23 +169,30 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(client.models.generate_content.call_count, 2)
         client.models.list.assert_called_once()
 
-    def test_upload_is_deleted_when_generation_fails(self):
-        error = engine.errors.APIError(403, {'error': {'code': 403}})
+    def test_audio_is_sent_directly_without_files_api(self):
         client = MagicMock()
-        client.files.upload.return_value = SimpleNamespace(name='files/test', state='ACTIVE')
-        client.models.generate_content.side_effect = error
-        service = engine.GeminiService(client)
-        with self.assertRaises(engine.errors.APIError):
-            service.transcribe(Path('test.mp3'))
-        client.files.delete.assert_called_once_with(name='files/test')
+        client.models.generate_content.return_value = SimpleNamespace(text='전사 완료', candidates=[])
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'audio.mp3'
+            path.write_bytes(b'audio-test-data')
+            self.assertEqual(engine.GeminiService(client).transcribe(path), '전사 완료')
+        contents = client.models.generate_content.call_args.kwargs['contents']
+        self.assertEqual(contents[0].inline_data.data, b'audio-test-data')
+        self.assertEqual(contents[0].inline_data.mime_type, 'audio/mpeg')
+        client.files.upload.assert_not_called()
+        client.files.get.assert_not_called()
+        client.files.delete.assert_not_called()
 
-    def test_failed_file_processing_is_cleaned(self):
+    def test_inline_audio_failure_does_not_upload_a_file(self):
         client = MagicMock()
-        client.files.upload.return_value = SimpleNamespace(name='files/test', state='FAILED')
-        with self.assertRaises(engine.VideoError):
-            engine.GeminiService(client).transcribe(Path('test.mp3'))
-        client.models.generate_content.assert_not_called()
-        client.files.delete.assert_called_once_with(name='files/test')
+        client.models.generate_content.side_effect = engine.errors.APIError(403, {'error': {'code': 403}})
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'audio.mp3'
+            path.write_bytes(b'audio')
+            with self.assertRaises(engine.errors.APIError):
+                engine.GeminiService(client).transcribe(path)
+        client.files.upload.assert_not_called()
+        self.assertEqual(client.models.generate_content.call_count, 1)
 
     def test_invalid_key_is_explained_without_echoing_key(self):
         error = engine.errors.APIError(400, {'error': {'code':400, 'message':'secret value', 'details':[{'reason':'API_KEY_INVALID'}]}})
@@ -277,6 +285,48 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(result, '앞부분\n뒷부분')
         self.assertEqual([command[command.index('-ss') + 1] for command in clips], ['0', '40.0'])
         self.assertFalse(roots[0].exists())
+
+    def test_real_sdk_503_fallback_with_inline_audio(self):
+        import httpx
+        import json
+        import base64
+        requests_seen = []
+        count = 0
+        def handle(request):
+            nonlocal count
+            requests_seen.append(request)
+            if request.method == 'GET':
+                return httpx.Response(200, json={'models': [{'name': 'models/gemini-2.5-flash-lite', 'supportedGenerationMethods': ['generateContent']}]})
+            count += 1
+            if count <= 2:
+                return httpx.Response(503, json={'error': {'code':503, 'status':'UNAVAILABLE', 'message':'overloaded'}})
+            return httpx.Response(200, json={'candidates': [{'content': {'role': 'model', 'parts': [{'text':'전사 복구'}]}, 'finishReason':'STOP'}]})
+        http_client = httpx.Client(transport=httpx.MockTransport(handle))
+        notices = []
+        with tempfile.TemporaryDirectory() as root, patch.object(engine.time, 'sleep'):
+            path = Path(root) / 'audio.mp3'
+            path.write_bytes(b'audio-test-data')
+            with engine.genai.Client(api_key='test-key-not-real', http_options=engine.types.HttpOptions(httpx_client=http_client, retry_options=engine.types.HttpRetryOptions(attempts=1))) as client:
+                service = engine.GeminiService(client, progress=notices.append)
+                self.assertEqual(service.transcribe(path), '전사 복구')
+                self.assertEqual(service.model, 'gemini-2.5-flash-lite')
+        self.assertEqual(count, 3)
+        self.assertEqual(len(requests_seen), 4)
+        body = json.loads(requests_seen[-1].content)
+        audio = body['contents'][0]['parts'][0]['inlineData']
+        self.assertEqual(audio['mime_type'], 'audio/mpeg')
+        self.assertEqual(base64.b64decode(audio['data']), b'audio-test-data')
+        self.assertIn('gemini-2.5-flash-lite:generateContent', str(requests_seen[-1].url))
+        self.assertFalse(any('/upload/' in str(request.url) for request in requests_seen))
+
+    def test_pipeline_error_identifies_transcription_stage_without_raw_body(self):
+        error = engine.errors.APIError(503, {'error': {'code':503, 'message':'private transcript'}})
+        with patch.object(engine.genai, 'Client'), patch.object(engine, 'transcribe_audio', side_effect=error):
+            with self.assertRaises(engine.VideoError) as raised:
+                engine.summarize_video('https://www.instagram.com/reel/test/', 'test-key')
+        self.assertIn('오디오 전사 단계', str(raised.exception))
+        self.assertIn('HTTP 503', str(raised.exception))
+        self.assertNotIn('private transcript', str(raised.exception))
 
     def test_long_text_summary_and_empty_response(self):
         client = MagicMock()
