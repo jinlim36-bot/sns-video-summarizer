@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import media_engine as engine
+import video_engine as engine
 
 
 class MediaTests(unittest.TestCase):

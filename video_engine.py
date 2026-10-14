@@ -1,5 +1,6 @@
 """Video retrieval and summarization, independent of the web interface."""
 import logging
+import hashlib
 import re
 import shutil
 import subprocess
@@ -15,6 +16,14 @@ from google import genai
 from google.genai import errors, types
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled
+
+ENGINE_VERSION = '1.1.1'
+LOADED_SOURCE_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def is_current_source():
+    return LOADED_SOURCE_HASH == hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
 
 logger = logging.getLogger(__name__)
 MAX_AUDIO_BYTES = 20 * 1024 * 1024
